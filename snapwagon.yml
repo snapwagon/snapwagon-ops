@@ -3,7 +3,10 @@
   become: yes
   tasks:
     - name: make sure required packages are installed
-      apt: pkg={{ item }} update_cache=yes cache_valid_time=3600
+      apt: 
+        pkg: "{{ item }}" 
+        update_cache: yes 
+        cache_valid_time: 3600
       with_items:
         - python3-pip
         - python3-dev
@@ -29,7 +32,10 @@
     - secrets.yml
   tasks:
     - name: create directory structure if necessary
-      file: path=/home/parentj/sites/snapwagon.io/{{ item }} state=directory mode=0755
+      file: 
+        path: "/home/parentj/sites/snapwagon.io/{{ item }}" 
+        state: directory 
+        mode: "0755"
       with_items:
         - database
         - media
@@ -67,6 +73,22 @@
         settings: settings.prod 
         virtualenv: "{{ virtualenv_dir }}"
 
+    # - name: create admin superuser
+    #   expect:
+    #     chdir: "{{ source_dir }}/snapwagon"
+    #     command: "{{ virtualenv_dir }}/bin/python3 manage.py createsuperuser --username={{ django_admin_username }} --email={{ django_admin_email }} --settings=settings.prod"
+    #     responses: 
+    #       Password:
+    #         - "{{ django_admin_password }}"
+    #         - "{{ django_admin_password }}"
+
+    # - name: create admin superuser
+    #   django_manage:
+    #     command: "createsuperuser --username={{ django_admin_username }} --email={{ django_admin_email }}"
+    #     app_path: "{{ source_dir }}/snapwagon" 
+    #     settings: settings.prod 
+    #     virtualenv: "{{ virtualenv_dir }}"
+
 - hosts: all
   become: yes
   vars: 
@@ -74,14 +96,15 @@
   tasks:
     - name: allow long hostnames in nginx
       lineinfile:
-        dest=/etc/nginx/nginx.conf
-        regexp='(\s+)#? ?server_names_hash_bucket_size'
-        backrefs=yes
-        line='\1server_names_hash_bucket_size 64;'
+        dest: /etc/nginx/nginx.conf
+        regexp: '(\s+)#? ?server_names_hash_bucket_size'
+        backrefs: yes
+        line: '\1server_names_hash_bucket_size 64;'
 
     - name: add nginx config to sites-available
-      template: src=./nginx.conf.j2
-                dest=/etc/nginx/sites-available/{{ inventory_hostname }}
+      template: 
+        src: templates/nginx.conf.j2
+        dest: "/etc/nginx/sites-available/{{ inventory_hostname }}"
       notify:
           - restart nginx
 
@@ -93,7 +116,7 @@
 
     - name: write gunicorn init script
       template: 
-        src: ./gunicorn-upstart.conf.j2
+        src: templates/gunicorn-upstart.conf.j2
         dest: "/etc/init/gunicorn-{{ inventory_hostname }}.conf"
       notify:
           - restart gunicorn
