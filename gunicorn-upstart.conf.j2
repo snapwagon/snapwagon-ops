@@ -1,0 +1,9 @@
+description "Gunicorn server for {{ inventory_hostname }}"
+
+start on net-device-up
+stop on shutdown
+
+respawn
+
+chdir /home/parentj/sites/{{ inventory_hostname }}/source/snapwagon
+exec ../../virtualenv/bin/gunicorn --bind unix:/tmp/{{ inventory_hostname }}.socket --capture-output --log-file='/var/log/upstart/gunicorn-snapwagon.io.log' --env DJANGO_SETTINGS_MODULE=settings.prod --env BRAINTREE_MERCHANT_ID=dn239hzvx7n3ndjb --env BRAINTREE_PUBLIC_KEY=5vqqv4jf9cjb3smd --env BRAINTREE_PRIVATE_KEY=700c81a16ac855916bf86eeede3d95d1 snapwagon.wsgi:application

@@ -1,0 +1,120 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: make sure required packages are installed
+      apt: pkg={{ item }} update_cache=yes cache_valid_time=3600
+      with_items:
+        - python3-pip
+        - python3-dev
+        - build-essential
+        - libssl-dev
+        - libffi-dev
+        - libpq-dev
+        - nginx
+        - git
+        - libjpeg-dev
+        - zlib1g-dev
+        - postgresql
+        - postgresql-contrib
+        - supervisor
+
+- hosts: all
+  become: yes
+  vars:
+    source_dir: /home/parentj/sites/snapwagon.io/source
+    static_dir: /home/parentj/sites/snapwagon.io/static
+    virtualenv_dir: /home/parentj/sites/snapwagon.io/virtualenv
+  vars_files:
+    - secrets.yml
+  tasks:
+    - name: create directory structure if necessary
+      file: path=/home/parentj/sites/snapwagon.io/{{ item }} state=directory mode=0755
+      with_items:
+        - database
+        - media
+        - source
+        - static
+        - virtualenv
+
+    - name: get latest source
+      git: 
+        repo: "https://{{ github_username }}:{{ github_password }}@github.com/snapwagon/snapwagon.git" 
+        dest: "{{ source_dir }}/snapwagon"
+
+    - name: make sure virtualenv is installed
+      pip: 
+        executable: pip3
+        name: virtualenv
+
+    - name: install requirements
+      pip: 
+        requirements: "{{ source_dir }}/snapwagon/requirements/prod.txt" 
+        virtualenv: "{{ virtualenv_dir }}" 
+        virtualenv_python: python3
+
+    - name: update static files
+      django_manage: 
+        command: "collectstatic --noinput" 
+        app_path: "{{ source_dir }}/snapwagon" 
+        settings: settings.prod 
+        virtualenv: "{{ virtualenv_dir }}"
+
+    - name: update database
+      django_manage: 
+        command: "migrate --noinput" 
+        app_path: "{{ source_dir }}/snapwagon" 
+        settings: settings.prod 
+        virtualenv: "{{ virtualenv_dir }}"
+
+- hosts: all
+  become: yes
+  vars: 
+    inventory_hostname: snapwagon.io
+  tasks:
+    - name: allow long hostnames in nginx
+      lineinfile:
+        dest=/etc/nginx/nginx.conf
+        regexp='(\s+)#? ?server_names_hash_bucket_size'
+        backrefs=yes
+        line='\1server_names_hash_bucket_size 64;'
+
+    - name: add nginx config to sites-available
+      template: src=./nginx.conf.j2
+                dest=/etc/nginx/sites-available/{{ inventory_hostname }}
+      notify:
+          - restart nginx
+
+    - name: add symlink in nginx sites-enabled
+      file: src=/etc/nginx/sites-available/{{ inventory_hostname }}
+            dest=/etc/nginx/sites-enabled/{{ inventory_hostname }} state=link
+      notify:
+          - restart nginx
+
+    - name: write gunicorn init script
+      template: 
+        src: ./gunicorn-upstart.conf.j2
+        dest: "/etc/init/gunicorn-{{ inventory_hostname }}.conf"
+      notify:
+          - restart gunicorn
+
+    - name: make sure nginx is running
+      service: 
+        name: nginx 
+        state: started
+    
+    - name: make sure gunicorn is running
+      service: 
+        name: "gunicorn-{{ inventory_hostname }}" 
+        state: started
+
+  handlers:
+    - name: restart nginx
+      service: 
+        name: nginx 
+        state: reloaded
+
+    - name: restart gunicorn
+      service: 
+        name: "gunicorn-{{ inventory_hostname }}" 
+        state: reloaded
