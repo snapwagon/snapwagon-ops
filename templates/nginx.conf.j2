@@ -14,4 +14,13 @@ server {
         proxy_set_header Host {{ inventory_hostname }};
         proxy_pass http://unix:/tmp/{{ inventory_hostname }}.socket;
     }
+
+    listen 443 ssl;
+    ssl_certificate /etc/letsencrypt/live/snapwagon.io/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/snapwagon.io/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+
+    if ($scheme != "https") {
+        return 301 https://$host$request_uri;
+    }
 }

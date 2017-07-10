@@ -8,8 +8,12 @@
         update_cache: yes 
         cache_valid_time: 3600
       with_items:
-        - python3-pip
+        - python-dev
+        - python-pexpect
+        - python-pip
+        - python-psycopg2
         - python3-dev
+        - python3-pip
         - build-essential
         - libssl-dev
         - libffi-dev
@@ -25,6 +29,7 @@
 - hosts: all
   become: yes
   vars:
+    deploy_dir: /home/parentj/sites/snapwagon.io/deploy
     source_dir: /home/parentj/sites/snapwagon.io/source
     static_dir: /home/parentj/sites/snapwagon.io/static
     virtualenv_dir: /home/parentj/sites/snapwagon.io/virtualenv
@@ -37,7 +42,7 @@
         state: directory 
         mode: "0755"
       with_items:
-        - database
+        - deploy
         - media
         - source
         - static
@@ -66,33 +71,56 @@
         settings: settings.prod 
         virtualenv: "{{ virtualenv_dir }}"
 
+    - name: create database user
+      postgresql_user:
+        name: "{{ database_user }}"
+        password: "{{ database_pass }}"
+      become_user: postgres
+
+    - name: create database
+      postgresql_db:
+        name: "{{ database_name }}"
+        owner: "{{ database_user }}"
+        encoding: UTF8
+        lc_ctype: en_US.UTF-8
+        lc_collate: en_US.UTF-8
+        template: template0
+      become_user: postgres
+
     - name: update database
       django_manage: 
         command: "migrate --noinput" 
         app_path: "{{ source_dir }}/snapwagon" 
         settings: settings.prod 
         virtualenv: "{{ virtualenv_dir }}"
+      environment:
+        DATABASE_NAME: "{{ database_name }}"
+        DATABASE_USER: "{{ database_user }}"
+        DATABASE_PASS: "{{ database_pass }}"
 
-    # - name: create admin superuser
-    #   expect:
-    #     chdir: "{{ source_dir }}/snapwagon"
-    #     command: "{{ virtualenv_dir }}/bin/python3 manage.py createsuperuser --username={{ django_admin_username }} --email={{ django_admin_email }} --settings=settings.prod"
-    #     responses: 
-    #       Password:
-    #         - "{{ django_admin_password }}"
-    #         - "{{ django_admin_password }}"
-
-    # - name: create admin superuser
-    #   django_manage:
-    #     command: "createsuperuser --username={{ django_admin_username }} --email={{ django_admin_email }}"
-    #     app_path: "{{ source_dir }}/snapwagon" 
-    #     settings: settings.prod 
-    #     virtualenv: "{{ virtualenv_dir }}"
+    - name: create admin superuser
+      expect:
+        chdir: "{{ source_dir }}/snapwagon"
+        command: "{{ virtualenv_dir }}/bin/python3 manage.py createsuperuser --username={{ django_admin_username }} --email={{ django_admin_email }} --settings=settings.prod"
+        responses: 
+          Password:
+            - "{{ django_admin_password }}"
+            - "{{ django_admin_password }}"
+      environment:
+        DATABASE_NAME: "{{ database_name }}"
+        DATABASE_USER: "{{ database_user }}"
+        DATABASE_PASS: "{{ database_pass }}"
+      ignore_errors: True
 
 - hosts: all
   become: yes
   vars: 
+    deploy_dir: /home/parentj/sites/snapwagon.io/deploy
     inventory_hostname: snapwagon.io
+    source_dir: /home/parentj/sites/snapwagon.io/source
+    virtualenv_dir: /home/parentj/sites/snapwagon.io/virtualenv
+  vars_files:
+    - secrets.yml
   tasks:
     - name: allow long hostnames in nginx
       lineinfile:
@@ -109,35 +137,46 @@
           - restart nginx
 
     - name: add symlink in nginx sites-enabled
-      file: src=/etc/nginx/sites-available/{{ inventory_hostname }}
-            dest=/etc/nginx/sites-enabled/{{ inventory_hostname }} state=link
+      file: 
+        src: "/etc/nginx/sites-available/{{ inventory_hostname }}"
+        dest: "/etc/nginx/sites-enabled/{{ inventory_hostname }}" 
+        state: link
       notify:
           - restart nginx
 
-    - name: write gunicorn init script
+    - name: write gunicorn configuration file
       template: 
-        src: templates/gunicorn-upstart.conf.j2
-        dest: "/etc/init/gunicorn-{{ inventory_hostname }}.conf"
+        src: templates/gunicorn.conf.py.j2
+        dest: "{{ deploy_dir }}/gunicorn.conf.py"
       notify:
-          - restart gunicorn
+        - restart supervisor
+
+    - name: write supervisor configuration file
+      template:
+        src: templates/supervisor/supervisor.conf.j2
+        dest: /etc/supervisor/supervisord.conf
+      notify:
+        - restart supervisor
+
+    - name: write supervisor gunicorn configuration file
+      template:
+        src: templates/supervisor/gunicorn.conf.j2
+        dest: /etc/supervisor/conf.d/gunicorn.conf
+      notify:
+        - restart supervisor
 
     - name: make sure nginx is running
       service: 
         name: nginx 
         state: started
-    
-    - name: make sure gunicorn is running
-      service: 
-        name: "gunicorn-{{ inventory_hostname }}" 
-        state: started
 
   handlers:
+    - name: restart supervisor
+      supervisorctl:
+        name: gunicorn
+        state: restarted
+
     - name: restart nginx
       service: 
         name: nginx 
-        state: reloaded
-
-    - name: restart gunicorn
-      service: 
-        name: "gunicorn-{{ inventory_hostname }}" 
         state: reloaded

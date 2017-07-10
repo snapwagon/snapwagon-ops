@@ -1,0 +1,14 @@
+import multiprocessing
+
+bind = 'unix:///tmp/{{ inventory_hostname }}.socket'
+raw_env = [
+    'DATABASE_NAME={{ database_name }}',
+    'DATABASE_USER={{ database_user }}',
+    'DATABASE_PASS={{ database_pass }}',
+    'DJANGO_SETTINGS_MODULE=settings.prod',
+    'BRAINTREE_MERCHANT_ID={{ braintree_merchant_id }}',
+    'BRAINTREE_PUBLIC_KEY={{ braintree_public_key }}',
+    'BRAINTREE_PRIVATE_KEY={{ braintree_private_key }}'
+]
+timeout = 30
+workers = multiprocessing.cpu_count() * 2 + 1
